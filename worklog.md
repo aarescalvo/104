@@ -986,3 +986,76 @@ Stage Summary:
 - Commit: bbdfe56
 - Sistema funcionando correctamente
 
+---
+Task ID: 44
+Agent: main
+Task: Crear datos de prueba y mejorar módulo Lista de Faena
+
+Work Log:
+- Creado script prisma/seed-test.ts para datos de prueba
+- Datos de prueba creados:
+  * Tropa B 2026 0099 con 10 animales (5 NO, 5 VA)
+  * Animales con pesaje individual completo
+  * Lista de Faena ABIERTA para hoy
+  * Usuario de faena, corral, cámara y tipificador
+- Actualizado módulo ListaFaenaModule:
+  * Muestra animales de la lista con garrón asignado
+  * Estadísticas: total, con garrón, pendientes
+  * Tabla con código, tropa, tipo, peso, estado
+  * Instrucciones del flujo de trabajo
+- Creada API /api/lista-faena/cerrar
+- Actualizada API /api/lista-faena/animales-hoy
+- Probadas todas las APIs:
+  * /api/lista-faena - 200 OK con tropas y animales
+  * /api/lista-faena/animales-hoy - 200 OK con 10 animales
+- Lint pasado sin errores
+
+Stage Summary:
+- Sistema con datos de prueba listos para testear
+- Módulo Lista de Faena muestra animales y garrones
+- Flujo completo listo para probar:
+  1. Lista Faena (animales ya cargados)
+  2. Ingreso a Cajón (asignar garrones)
+  3. Romaneo (pesar medias)
+  4. VB Faena (verificar)
+
+Credenciales: admin / admin123 (PIN: 1234)
+
+---
+Task ID: 45
+Agent: main
+Task: Modificar Ingreso Cajón con teclado numérico
+
+Work Log:
+- Rediseñado completamente el módulo IngresoCajonModule
+- Eliminado el selector de lista de animales pendientes
+- Implementado teclado numérico en pantalla:
+  * Display digital grande para mostrar número ingresado
+  * Teclas 1-9, 0, clear (borrar todo), backspace (borrar último)
+  * Botones de 14px con texto grande para fácil visualización
+- Búsqueda automática del animal mientras se escribe:
+  * Busca por número de animal dentro de la tropa
+  * Busca por últimos dígitos del código
+  * Busca por coincidencia parcial del código
+- Panel de animal encontrado:
+  * Muestra código, tropa, tipo y peso vivo
+  * Botón grande verde "ASIGNAR GARRÓN #X"
+- Opción de asignar sin identificar:
+  * Botón alternativo para animales no encontrados
+- Panel derecho con lista de garrones asignados:
+  * Muestra último asignado primero (orden inverso)
+  * Indica si tiene animal o "Sin identificar"
+  * Muestra estado de completado
+- Resumen superior actualizado:
+  * Total animales en lista
+  * Asignados (con garrón)
+  * Pendientes (sin garrón)
+- Lint pasado sin errores
+
+Stage Summary:
+- Interfaz más intuitiva para operarios de faena
+- No requiere selección de lista - solo número
+- Teclado numérico similar a terminales industriales
+- Flujo: ingresa número → confirma datos → asigna garrón
+- Sistema listo para probar en producción
+

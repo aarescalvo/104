@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { 
-  BoxSelect, RefreshCw, Link2, Hash, Search, ScanLine,
-  CheckCircle, AlertTriangle, ChevronUp, ChevronDown
+  BoxSelect, RefreshCw, Link2, Hash, CheckCircle, AlertTriangle,
+  Delete, Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
@@ -47,9 +46,8 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
   
   // Estado
   const [proximoGarron, setProximoGarron] = useState(1)
-  const [selectedAnimalId, setSelectedAnimalId] = useState<string | null>(null)
-  const [inputManual, setInputManual] = useState('')
-  const [codigoBarras, setCodigoBarras] = useState('')
+  const [numeroAnimal, setNumeroAnimal] = useState('')
+  const [animalEncontrado, setAnimalEncontrado] = useState<AnimalLista | null>(null)
   
   // UI
   const [loading, setLoading] = useState(true)
@@ -62,12 +60,12 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // Obtener animales de la lista de faena del día
-      const listaRes = await fetch('/api/lista-faena/animales-hoy')
-      const listaData = await listaRes.json()
+      const [listaRes, garronesRes] = await Promise.all([
+        fetch('/api/lista-faena/animales-hoy'),
+        fetch('/api/garrones-asignados')
+      ])
       
-      // Obtener garrones ya asignados
-      const garronesRes = await fetch('/api/garrones-asignados')
+      const listaData = await listaRes.json()
       const garronesData = await garronesRes.json()
       
       if (listaData.success) {
@@ -76,8 +74,6 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
       
       if (garronesData.success) {
         setGarronesAsignados(garronesData.data)
-        
-        // Calcular próximo garrón disponible
         const garronesUsados = garronesData.data.map((g: GarronAsignado) => g.garron)
         const maxGarron = garronesUsados.length > 0 ? Math.max(...garronesUsados) : 0
         setProximoGarron(maxGarron + 1)
@@ -91,16 +87,59 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
     }
   }
 
-  const handleAsignarGarron = async (animalId: string | null, garronManual?: number) => {
-    const garron = garronManual || proximoGarron
+  // Teclado numérico
+  const handleKeyPress = (key: string) => {
+    if (key === 'clear') {
+      setNumeroAnimal('')
+      setAnimalEncontrado(null)
+    } else if (key === 'backspace') {
+      setNumeroAnimal(prev => prev.slice(0, -1))
+      setAnimalEncontrado(null)
+    } else if (numeroAnimal.length < 4) {
+      const newNumber = numeroAnimal + key
+      setNumeroAnimal(newNumber)
+      // Buscar animal automáticamente cuando hay 3 o más dígitos
+      if (newNumber.length >= 1) {
+        buscarAnimal(newNumber)
+      }
+    }
+  }
+
+  const buscarAnimal = (numero: string) => {
+    // Buscar animal por número (última parte del código)
+    // El formato del código es: B20260099-001 (el número es 001)
+    const numInt = parseInt(numero)
     
+    // Buscar en animales pendientes
+    const animal = animalesLista.find(a => {
+      // Buscar por número de animal dentro de la tropa
+      if (a.numero === numInt) return true
+      // Buscar por últimos dígitos del código
+      if (a.codigo.endsWith(numero.padStart(3, '0'))) return true
+      // Buscar por coincidencia parcial
+      if (a.codigo.includes(numero)) return true
+      return false
+    })
+
+    // Solo mostrar si no tiene garrón asignado
+    if (animal && !animal.garronAsignado) {
+      setAnimalEncontrado(animal)
+    } else if (animal && animal.garronAsignado) {
+      setAnimalEncontrado(null)
+      toast.warning(`Animal ya tiene garrón #${animal.garronAsignado} asignado`)
+    } else {
+      setAnimalEncontrado(null)
+    }
+  }
+
+  const handleAsignarGarron = async (animalId: string | null) => {
     setSaving(true)
     try {
       const res = await fetch('/api/garrones-asignados', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          garron,
+          garron: proximoGarron,
           animalId,
           operadorId: operador.id
         })
@@ -109,11 +148,13 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
       const data = await res.json()
       
       if (data.success) {
-        toast.success(`Garrón ${garron} asignado correctamente`)
+        toast.success(`Garrón #${proximoGarron} asignado correctamente`, {
+          description: animalId ? `Animal: ${animalEncontrado?.codigo}` : 'Sin identificar'
+        })
+        // Limpiar y actualizar
+        setNumeroAnimal('')
+        setAnimalEncontrado(null)
         fetchData()
-        setSelectedAnimalId(null)
-        setInputManual('')
-        setCodigoBarras('')
       } else {
         toast.error(data.error || 'Error al asignar garrón')
       }
@@ -125,38 +166,34 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
     }
   }
 
-  const handleAsignarGarronCero = () => {
-    // Asignar garrón sin animal identificado
+  const handleAsignarSinIdentificar = () => {
     handleAsignarGarron(null)
   }
-
-  const handleLeerCodigo = useCallback(() => {
-    if (!codigoBarras.trim()) {
-      toast.error('Ingrese un código de animal')
-      return
-    }
-    
-    // Buscar animal por código
-    const animal = animalesLista.find(a => 
-      a.codigo.toLowerCase().includes(codigoBarras.toLowerCase()) ||
-      a.codigo.toLowerCase() === codigoBarras.toLowerCase()
-    )
-    
-    if (animal) {
-      setSelectedAnimalId(animal.id)
-      toast.success(`Animal encontrado: ${animal.codigo}`)
-    } else {
-      toast.error('Animal no encontrado en la lista de faena')
-    }
-  }, [codigoBarras, animalesLista])
 
   const getAnimalesPendientes = () => {
     return animalesLista.filter(a => !a.garronAsignado)
   }
 
-  const getAnimalSeleccionado = () => {
-    return animalesLista.find(a => a.id === selectedAnimalId)
-  }
+  // Teclado numérico
+  const TecladoNumerico = () => (
+    <div className="grid grid-cols-3 gap-2">
+      {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'backspace'].map((key) => (
+        <Button
+          key={key}
+          variant={key === 'clear' || key === 'backspace' ? 'destructive' : 'outline'}
+          className={`h-14 text-2xl font-bold ${
+            key === 'clear' || key === 'backspace' 
+              ? '' 
+              : 'hover:bg-amber-50 hover:border-amber-300'
+          }`}
+          onClick={() => handleKeyPress(key)}
+        >
+          {key === 'clear' ? <Delete className="w-6 h-6" /> : 
+           key === 'backspace' ? '←' : key}
+        </Button>
+      ))}
+    </div>
+  )
 
   if (loading) {
     return (
@@ -173,15 +210,15 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-stone-800">Ingreso a Cajón</h1>
-            <p className="text-stone-500">Asignación de garrones a animales de faena</p>
+            <p className="text-stone-500">Asignación de garrones - Ingrese número de animal</p>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="outline" size="sm" onClick={fetchData}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Actualizar
             </Button>
-            <Badge variant="outline" className="text-lg px-4 py-2">
-              Próximo garrón: <span className="font-bold text-amber-600 ml-1">#{proximoGarron}</span>
+            <Badge variant="outline" className="text-lg px-4 py-2 bg-amber-50 border-amber-200">
+              Próximo: <span className="font-bold text-amber-600 ml-1">#{proximoGarron}</span>
             </Badge>
           </div>
         </div>
@@ -192,39 +229,122 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2">
                 <Hash className="w-4 h-4 text-blue-600" />
-                <strong>Lista de Faena:</strong> {animalesLista.length} animales
+                <strong>Lista:</strong> {animalesLista.length} animales
               </span>
               <span className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-green-600" />
-                Asignados: {garronesAsignados.filter(g => g.animalId).length}
+                Asignados: {animalesLista.filter(a => a.garronAsignado).length}
               </span>
               <span className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-orange-500" />
-                Sin identificar: {garronesAsignados.filter(g => !g.animalId).length}
+                Pendientes: {getAnimalesPendientes().length}
               </span>
             </div>
           </CardContent>
         </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Panel izquierdo - Garrones */}
+          {/* Panel izquierdo - Teclado y asignación */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="bg-amber-50 py-3">
+              <CardTitle className="text-base">Ingreso de Número de Animal</CardTitle>
+              <CardDescription>
+                Ingrese el número del animal con el teclado numérico
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 space-y-4">
+              {/* Display del número */}
+              <div className="text-center p-4 bg-stone-900 rounded-lg">
+                <p className="text-stone-400 text-sm">Número de Animal</p>
+                <div className="text-5xl font-mono font-bold text-amber-400 min-h-[60px] flex items-center justify-center">
+                  {numeroAnimal || '_ _ _'}
+                </div>
+              </div>
+
+              {/* Teclado numérico */}
+              <TecladoNumerico />
+
+              <Separator />
+
+              {/* Animal encontrado */}
+              {animalEncontrado ? (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    <span className="font-medium text-green-700">Animal encontrado</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-stone-500">Código:</span>
+                      <span className="font-bold ml-1">{animalEncontrado.codigo}</span>
+                    </div>
+                    <div>
+                      <span className="text-stone-500">Tropa:</span>
+                      <span className="ml-1">{animalEncontrado.tropaCodigo}</span>
+                    </div>
+                    <div>
+                      <span className="text-stone-500">Tipo:</span>
+                      <Badge variant="outline" className="ml-1">{animalEncontrado.tipoAnimal}</Badge>
+                    </div>
+                    <div>
+                      <span className="text-stone-500">Peso:</span>
+                      <span className="font-bold ml-1">{animalEncontrado.pesoVivo?.toFixed(0) || '-'} kg</span>
+                    </div>
+                  </div>
+                  
+                  <Button
+                    onClick={() => handleAsignarGarron(animalEncontrado.id)}
+                    disabled={saving}
+                    className="w-full h-14 mt-4 bg-green-600 hover:bg-green-700 text-lg"
+                  >
+                    <Link2 className="w-5 h-5 mr-2" />
+                    ASIGNAR GARRÓN #{proximoGarron}
+                  </Button>
+                </div>
+              ) : numeroAnimal.length > 0 ? (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-orange-500" />
+                    <span className="text-orange-700">No se encontró animal con número {numeroAnimal}</span>
+                  </div>
+                  <p className="text-sm text-orange-600 mt-1">
+                    Verifique el número o asigne sin identificar
+                  </p>
+                </div>
+              ) : null}
+
+              {/* Botón asignar sin identificar */}
+              <Button
+                variant="outline"
+                onClick={handleAsignarSinIdentificar}
+                disabled={saving}
+                className="w-full h-12 border-orange-300 text-orange-600 hover:bg-orange-50"
+              >
+                <AlertTriangle className="w-5 h-5 mr-2" />
+                ASIGNAR SIN IDENTIFICAR
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Panel derecho - Lista de garrones */}
           <Card className="border-0 shadow-md">
             <CardHeader className="bg-stone-50 py-3">
               <CardTitle className="text-base">Garrones Asignados ({garronesAsignados.length})</CardTitle>
               <CardDescription>
-                Últimos garrones asignados hoy
+                Últimas asignaciones del día
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <ScrollArea className="h-[500px]">
+              <ScrollArea className="h-[600px]">
                 {garronesAsignados.length === 0 ? (
-                  <div className="p-4 text-center text-stone-400">
-                    <BoxSelect className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <div className="p-8 text-center text-stone-400">
+                    <BoxSelect className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p>No hay garrones asignados</p>
+                    <p className="text-sm">Ingrese un número de animal para comenzar</p>
                   </div>
                 ) : (
                   <div className="divide-y">
-                    {garronesAsignados.map((g) => (
+                    {[...garronesAsignados].reverse().map((g) => (
                       <div 
                         key={g.garron}
                         className={`p-3 flex items-center justify-between ${
@@ -232,7 +352,7 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl font-bold text-amber-600 w-12">#{g.garron}</span>
+                          <span className="text-2xl font-bold text-amber-600 w-14">#{g.garron}</span>
                           {g.animalId ? (
                             <div>
                               <p className="font-medium">{g.animalCodigo}</p>
@@ -246,7 +366,10 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
                         </div>
                         <div className="text-right">
                           {g.completado ? (
-                            <Badge className="bg-green-100 text-green-700">Completado</Badge>
+                            <Badge className="bg-green-100 text-green-700">
+                              <Check className="w-3 h-3 mr-1" />
+                              Completado
+                            </Badge>
                           ) : (
                             <span className="text-sm text-stone-500">
                               {g.pesoVivo?.toFixed(0) || '-'} kg
@@ -258,134 +381,6 @@ export function IngresoCajonModule({ operador }: { operador: Operador }) {
                   </div>
                 )}
               </ScrollArea>
-            </CardContent>
-          </Card>
-
-          {/* Panel derecho - Asignación */}
-          <Card className="border-0 shadow-md">
-            <CardHeader className="bg-amber-50 py-3">
-              <CardTitle className="text-base">Asignación de Garrón</CardTitle>
-              <CardDescription>
-                Seleccione un animal o asigne sin identificar
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 space-y-4">
-              {/* Número de garrón */}
-              <div className="flex items-center justify-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => setProximoGarron(Math.max(1, proximoGarron - 1))}>
-                  <ChevronUp className="w-4 h-4" />
-                </Button>
-                <div className="text-center">
-                  <Label className="text-sm">Garrón</Label>
-                  <div className="text-4xl font-bold text-amber-600">#{proximoGarron}</div>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setProximoGarron(proximoGarron + 1)}>
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </div>
-
-              <Separator />
-
-              {/* Búsqueda de animal */}
-              <div className="space-y-2">
-                <Label>Código de Animal</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={codigoBarras}
-                    onChange={(e) => setCodigoBarras(e.target.value)}
-                    placeholder="Escanear o ingresar código..."
-                    className="flex-1"
-                    onKeyDown={(e) => e.key === 'Enter' && handleLeerCodigo()}
-                  />
-                  <Button onClick={handleLeerCodigo}>
-                    <ScanLine className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Animal seleccionado */}
-              {selectedAnimalId && (
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-green-600 font-medium">Animal seleccionado</span>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => setSelectedAnimalId(null)}
-                    >
-                      Cambiar
-                    </Button>
-                  </div>
-                  {(() => {
-                    const animal = getAnimalSeleccionado()
-                    return animal ? (
-                      <div className="space-y-1">
-                        <p className="font-bold text-lg">{animal.codigo}</p>
-                        <p className="text-sm text-stone-600">{animal.tropaCodigo} • {animal.tipoAnimal}</p>
-                        <p className="text-sm">Peso vivo: <strong>{animal.pesoVivo?.toFixed(0) || '-'} kg</strong></p>
-                      </div>
-                    ) : null
-                  })()}
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Animales pendientes */}
-              <div className="space-y-2">
-                <Label>Animales Pendientes ({getAnimalesPendientes().length})</Label>
-                <ScrollArea className="h-48 border rounded-lg">
-                  {getAnimalesPendientes().length === 0 ? (
-                    <div className="p-4 text-center text-stone-400">
-                      No hay animales pendientes
-                    </div>
-                  ) : (
-                    <div className="divide-y">
-                      {getAnimalesPendientes().slice(0, 20).map((animal) => (
-                        <button
-                          key={animal.id}
-                          onClick={() => setSelectedAnimalId(animal.id)}
-                          className={`w-full p-2 text-left hover:bg-stone-50 transition-colors ${
-                            selectedAnimalId === animal.id ? 'bg-amber-50' : ''
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-medium">{animal.codigo}</span>
-                              <span className="text-xs text-stone-500 ml-2">{animal.tropaCodigo}</span>
-                            </div>
-                            <Badge variant="outline">{animal.tipoAnimal}</Badge>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </div>
-
-              <Separator />
-
-              {/* Botones de acción */}
-              <div className="space-y-2">
-                <Button
-                  onClick={() => selectedAnimalId && handleAsignarGarron(selectedAnimalId)}
-                  disabled={saving || !selectedAnimalId}
-                  className="w-full h-12 bg-green-600 hover:bg-green-700"
-                >
-                  <Link2 className="w-5 h-5 mr-2" />
-                  ASIGNAR GARRÓN #{proximoGarron}
-                </Button>
-                
-                <Button
-                  variant="outline"
-                  onClick={handleAsignarGarronCero}
-                  disabled={saving}
-                  className="w-full h-12"
-                >
-                  <AlertTriangle className="w-5 h-5 mr-2 text-orange-500" />
-                  ASIGNAR SIN IDENTIFICAR
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>

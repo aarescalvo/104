@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { 
   ClipboardList, Plus, Calendar, Trash2, Save, Eye, Edit, 
-  CheckCircle, Clock, Beef, AlertTriangle, Play, Lock, RefreshCw
+  CheckCircle, Clock, Beef, AlertTriangle, Play, Lock, RefreshCw,
+  Hash, BoxSelect, Scale, Printer
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 
 const ESTADOS_LISTA = [
@@ -30,8 +33,19 @@ interface Tropa {
   cantidadCabezas: number
   estado: string
   usuarioFaena?: { nombre: string }
-  corral?: string
+  corral?: { nombre: string }
   tiposAnimales?: { tipoAnimal: string; cantidad: number }[]
+}
+
+interface AnimalLista {
+  id: string
+  codigo: string
+  tropaCodigo: string | null
+  tipoAnimal: string | null
+  pesoVivo: number | null
+  numero: number
+  garronAsignado: number | null
+  estado: string
 }
 
 interface ListaFaena {
@@ -43,14 +57,6 @@ interface ListaFaena {
   fechaCierre?: string
   observaciones?: string
   tropas?: { tropa: Tropa; cantidad: number }[]
-  asignaciones?: AsignacionGarron[]
-}
-
-interface AsignacionGarron {
-  id: string
-  garron: number
-  animal: { codigo: string; numero: number; tipoAnimal: string }
-  horaIngreso: string
 }
 
 interface Operador {
@@ -62,34 +68,34 @@ interface Operador {
 export function ListaFaenaModule({ operador }: { operador: Operador }) {
   const [listas, setListas] = useState<ListaFaena[]>([])
   const [tropasDisponibles, setTropasDisponibles] = useState<Tropa[]>([])
+  const [animalesLista, setAnimalesLista] = useState<AnimalLista[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   
   const [activeTab, setActiveTab] = useState('actual')
   const [listaActual, setListaActual] = useState<ListaFaena | null>(null)
-  const [tropasSeleccionadas, setTropasSeleccionadas] = useState<{ tropaId: string; cantidad: number }[]>([])
   
   // Dialogs
   const [nuevaListaOpen, setNuevaListaOpen] = useState(false)
-  const [asignarGarronOpen, setAsignarGarronOpen] = useState(false)
   const [cerrarListaOpen, setCerrarListaOpen] = useState(false)
   const [claveSupervisor, setClaveSupervisor] = useState('')
-  const [garronInput, setGarronInput] = useState('')
-  const [animalInput, setAnimalInput] = useState('')
 
   useEffect(() => {
     fetchData()
   }, [])
 
   const fetchData = async () => {
+    setLoading(true)
     try {
-      const [listasRes, tropasRes] = await Promise.all([
+      const [listasRes, tropasRes, animalesRes] = await Promise.all([
         fetch('/api/lista-faena'),
-        fetch('/api/tropas?estado=PESADO,LISTO_FAENA')
+        fetch('/api/tropas?estado=PESADO,LISTO_FAENA'),
+        fetch('/api/lista-faena/animales-hoy')
       ])
       
       const listasData = await listasRes.json()
       const tropasData = await tropasRes.json()
+      const animalesData = await animalesRes.json()
       
       if (listasData.success) {
         setListas(listasData.data)
@@ -100,15 +106,19 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
       if (tropasData.success) {
         setTropasDisponibles(tropasData.data)
       }
+
+      if (animalesData.success) {
+        setAnimalesLista(animalesData.data)
+      }
     } catch (error) {
       console.error('Error fetching data:', error)
+      toast.error('Error al cargar datos')
     } finally {
       setLoading(false)
     }
   }
 
   const handleCrearLista = async () => {
-    // Verificar si ya hay una lista abierta hoy
     const hoy = new Date().toDateString()
     const listaHoy = listas.find(l => new Date(l.fecha).toDateString() === hoy && l.estado === 'ABIERTA')
     
@@ -166,44 +176,12 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
     }
   }
 
-  const handleAsignarGarron = async () => {
-    if (!listaActual || !garronInput) return
-
-    setSaving(true)
-    try {
-      const res = await fetch('/api/lista-faena/asignar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          listaFaenaId: listaActual.id,
-          garron: parseInt(garronInput),
-          animalCodigo: animalInput || null
-        })
-      })
-
-      const data = await res.json()
-      if (data.success) {
-        toast.success(`Garrón ${garronInput} asignado`)
-        setGarronInput('')
-        setAnimalInput('')
-        fetchData()
-      } else {
-        toast.error(data.error || 'Error al asignar')
-      }
-    } catch (error) {
-      toast.error('Error de conexión')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const handleCerrarLista = async () => {
     if (!claveSupervisor) {
       toast.error('Ingrese la clave de supervisor')
       return
     }
 
-    // Verificar clave
     try {
       const authRes = await fetch('/api/auth', {
         method: 'POST',
@@ -213,7 +191,7 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
       
       const authData = await authRes.json()
       
-      if (!authData.success || (authData.data.nivel !== 'SUPERVISOR' && authData.data.nivel !== 'ADMINISTRADOR')) {
+      if (!authData.success || (authData.data.rol !== 'SUPERVISOR' && authData.data.rol !== 'ADMINISTRADOR')) {
         toast.error('Clave de supervisor inválida')
         return
       }
@@ -257,6 +235,11 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
       </Badge>
     )
   }
+
+  // Calcular estadísticas
+  const totalAnimales = animalesLista.length
+  const conGarron = animalesLista.filter(a => a.garronAsignado).length
+  const sinGarron = totalAnimales - conGarron
 
   if (loading) {
     return (
@@ -350,7 +333,7 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
                                 <Badge variant="outline">{t.cantidad} cab.</Badge>
                               </div>
                               <p className="text-sm text-stone-500 mt-1">{t.tropa.usuarioFaena?.nombre}</p>
-                              <p className="text-xs text-stone-400">{typeof t.tropa.corral === 'object' ? t.tropa.corral?.nombre : t.tropa.corral || '-'}</p>
+                              <p className="text-xs text-stone-400">{t.tropa.corral?.nombre || '-'}</p>
                             </div>
                           ))}
                         </div>
@@ -366,6 +349,7 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {tropasDisponibles
                             .filter(t => !listaActual.tropas?.some(lt => lt.tropa.id === t.id))
+                            .slice(0, 6)
                             .map((tropa) => (
                             <div key={tropa.id} className="p-3 border rounded-lg">
                               <div className="flex items-center justify-between mb-2">
@@ -402,86 +386,116 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
                   </CardContent>
                 </Card>
 
-                {/* Asignación de garrones */}
+                {/* Animales y Garrones */}
                 <Card className="border-0 shadow-md">
                   <CardHeader className="bg-amber-50 rounded-t-lg">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Beef className="w-5 h-5 text-amber-600" />
-                      Asignación de Garrones
-                    </CardTitle>
-                    <CardDescription>
-                      Numeración correlativa por día - Ingrese manualmente o escanee caravana
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    {/* Formulario de asignación */}
-                    {listaActual.estado !== 'CERRADA' && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-stone-50 rounded-lg">
-                        <div className="space-y-2">
-                          <Label>N° Garrón</Label>
-                          <Input
-                            type="number"
-                            value={garronInput}
-                            onChange={(e) => setGarronInput(e.target.value)}
-                            placeholder="Siguiente correlativo"
-                            className="text-xl font-bold text-center h-12"
-                          />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Beef className="w-5 h-5 text-amber-600" />
+                          Animales en Lista de Faena
+                        </CardTitle>
+                        <CardDescription>
+                          Estado de asignación de garrones
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-1">
+                          <Hash className="w-4 h-4 text-amber-600" />
+                          <span className="font-medium">{totalAnimales}</span>
+                          <span className="text-stone-500">total</span>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Código Animal (opcional)</Label>
-                          <Input
-                            value={animalInput}
-                            onChange={(e) => setAnimalInput(e.target.value.toUpperCase())}
-                            placeholder="Escanear o ingrese código"
-                            className="font-mono"
-                          />
+                        <div className="flex items-center gap-1">
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                          <span className="font-medium text-green-600">{conGarron}</span>
+                          <span className="text-stone-500">con garrón</span>
                         </div>
-                        <div className="flex items-end">
-                          <Button
-                            onClick={handleAsignarGarron}
-                            disabled={saving || !garronInput}
-                            className="w-full h-12 bg-green-600 hover:bg-green-700"
-                          >
-                            <CheckCircle className="w-5 h-5 mr-2" />
-                            Asignar
-                          </Button>
+                        <div className="flex items-center gap-1">
+                          <AlertTriangle className="w-4 h-4 text-orange-500" />
+                          <span className="font-medium text-orange-500">{sinGarron}</span>
+                          <span className="text-stone-500">pendientes</span>
                         </div>
                       </div>
-                    )}
-
-                    {/* Lista de asignaciones */}
-                    <div className="max-h-96 overflow-y-auto">
-                      {listaActual.asignaciones && listaActual.asignaciones.length > 0 ? (
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {animalesLista.length === 0 ? (
+                      <div className="p-8 text-center text-stone-400">
+                        <Beef className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>No hay animales en la lista</p>
+                        <p className="text-sm">Agregue tropas a la lista para ver los animales</p>
+                      </div>
+                    ) : (
+                      <ScrollArea className="h-[500px]">
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Garrón</TableHead>
-                              <TableHead>Animal</TableHead>
+                              <TableHead className="w-24">Garrón</TableHead>
+                              <TableHead>Código</TableHead>
+                              <TableHead>Tropa</TableHead>
                               <TableHead>Tipo</TableHead>
-                              <TableHead>Hora</TableHead>
+                              <TableHead className="text-right">Peso Vivo</TableHead>
+                              <TableHead className="text-center">Estado</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {listaActual.asignaciones.map((a) => (
-                              <TableRow key={a.id}>
-                                <TableCell className="font-bold text-lg">{a.garron}</TableCell>
-                                <TableCell className="font-mono">{a.animal.codigo}</TableCell>
+                            {animalesLista.map((animal) => (
+                              <TableRow key={animal.id} className={animal.garronAsignado ? '' : 'bg-orange-50'}>
                                 <TableCell>
-                                  <Badge variant="outline">{a.animal.tipoAnimal}</Badge>
+                                  {animal.garronAsignado ? (
+                                    <span className="text-xl font-bold text-amber-600">
+                                      #{animal.garronAsignado}
+                                    </span>
+                                  ) : (
+                                    <Badge variant="outline" className="text-orange-600 border-orange-300">
+                                      Sin asignar
+                                    </Badge>
+                                  )}
                                 </TableCell>
-                                <TableCell className="text-stone-500">
-                                  {new Date(a.horaIngreso).toLocaleTimeString('es-AR')}
+                                <TableCell className="font-mono">{animal.codigo}</TableCell>
+                                <TableCell className="text-stone-500">{animal.tropaCodigo}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">{animal.tipoAnimal || '-'}</Badge>
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {animal.pesoVivo ? `${animal.pesoVivo.toFixed(0)} kg` : '-'}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {animal.garronAsignado ? (
+                                    <Badge className="bg-green-100 text-green-700">
+                                      <CheckCircle className="w-3 h-3 mr-1" />
+                                      Asignado
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-orange-600">
+                                      <Clock className="w-3 h-3 mr-1" />
+                                      Pendiente
+                                    </Badge>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
                         </Table>
-                      ) : (
-                        <div className="text-center py-8 text-stone-400">
-                          <Beef className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                          <p>No hay garrones asignados</p>
-                        </div>
-                      )}
+                      </ScrollArea>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Instrucciones */}
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
+                      <div className="text-sm text-amber-800">
+                        <p className="font-medium mb-1">Flujo de trabajo:</p>
+                        <ol className="list-decimal list-inside space-y-1 text-amber-700">
+                          <li>Agregue tropas a la lista de faena (los animales ya deben tener pesaje individual)</li>
+                          <li>Vaya a <strong>Ingreso a Cajón</strong> para asignar garrones a cada animal</li>
+                          <li>En <strong>Romaneo</strong> registre el peso de las medias reses</li>
+                          <li>Finalmente, en <strong>VB Faena</strong> verifique y corrija si es necesario</li>
+                        </ol>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -573,7 +587,6 @@ export function ListaFaenaModule({ operador }: { operador: Operador }) {
                 <AlertTriangle className="w-5 h-5 text-amber-600 mb-2" />
                 <p className="text-sm text-amber-700">
                   Una vez cerrada la lista, no se podrán agregar más animales ni modificar asignaciones.
-                  Los stocks se actualizarán automáticamente.
                 </p>
               </div>
               <div className="space-y-2">
