@@ -1059,3 +1059,35 @@ Stage Summary:
 - Flujo: ingresa número → confirma datos → asigna garrón
 - Sistema listo para probar en producción
 
+---
+Task ID: 46
+Agent: main
+Task: Corregir error al registrar pesaje de media res en Romaneo
+
+Work Log:
+- Identificado el problema en la API /api/romaneo/pesar
+- La API tenía varios problemas:
+  * Usaba modelos y campos incorrectos
+  * No validaba correctamente los datos de entrada
+  * Faltaba manejo de errores detallado
+- Reescrita completamente la API de pesaje:
+  * Validación de campos requeridos (garron, lado, peso, camaraId)
+  * Validación de lado (IZQUIERDA/DERECHA) y peso (>0)
+  * Búsqueda de asignación del garrón para obtener datos del animal
+  * Creación automática del romaneo si no existe
+  * Creación de MediaRes con código único
+  * Actualización de stock en cámara (StockMediaRes)
+  * Registro de movimiento de cámara (MovimientoCamara)
+  * Actualización de AsignacionGarron (tieneMediaDer, tieneMediaIzq, completado)
+  * Cálculo automático de pesoTotal y rinde cuando hay ambas medias
+- Probado exitosamente:
+  * POST garron=1, lado=DERECHA, peso=125.5 → 200 OK
+  * POST garron=1, lado=IZQUIERDA, peso=128.3 → 200 OK
+  * Estado final: garron 1 completado=true, tieneMediaDer=true, tieneMediaIzq=true
+
+Stage Summary:
+- API de pesaje completamente funcional
+- Flujo de romaneo funcionando correctamente
+- Stock de cámara actualizado automáticamente
+- Sistema listo para producción
+

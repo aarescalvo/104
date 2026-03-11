@@ -16,43 +16,82 @@ export async function POST(request: NextRequest) {
       operadorId
     } = body
 
+    console.log('=== INICIO PESAJE ===')
+    console.log('Datos recibidos:', { garron, lado, peso, camaraId, denticion, tipificadorId })
+
     if (!garron || !lado || !peso || !camaraId) {
+      console.log('Error: Faltan datos requeridos')
       return NextResponse.json(
-        { success: false, error: 'Faltan datos requeridos' },
+        { success: false, error: 'Faltan datos requeridos: garron, lado, peso, camaraId' },
         { status: 400 }
       )
     }
 
-    // Buscar o crear romaneo para este garrón
+    // Validar lado
+    if (lado !== 'IZQUIERDA' && lado !== 'DERECHA') {
+      return NextResponse.json(
+        { success: false, error: 'Lado debe ser IZQUIERDA o DERECHA' },
+        { status: 400 }
+      )
+    }
+
+    // Validar peso
+    const pesoNum = parseFloat(peso)
+    if (isNaN(pesoNum) || pesoNum <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'Peso debe ser un número positivo' },
+        { status: 400 }
+      )
+    }
+
+    // Buscar la asignación del garrón para hoy
+    const hoy = new Date()
+    hoy.setHours(0, 0, 0, 0)
+
+    const asignacion = await db.asignacionGarron.findFirst({
+      where: {
+        garron: parseInt(garron),
+        horaIngreso: {
+          gte: hoy,
+          lt: new Date(hoy.getTime() + 24 * 60 * 60 * 1000)
+        }
+      },
+      include: {
+        animal: {
+          include: {
+            tropa: true,
+            pesajeIndividual: true
+          }
+        }
+      }
+    })
+
+    console.log('Asignación encontrada:', asignacion ? `ID: ${asignacion.id}` : 'No encontrada')
+
+    // Verificar si ya existe romaneo para este garrón
     let romaneo = await db.romaneo.findFirst({
-      where: { garron },
+      where: { garron: parseInt(garron) },
       include: { mediasRes: true }
     })
 
     if (!romaneo) {
-      // Buscar datos del animal asignado a este garrón
-      const asignacion = await db.asignacionGarron.findFirst({
-        where: { garron },
-        include: {
-          animal: {
-            include: {
-              tropa: true,
-              pesajeIndividual: true
-            }
-          }
-        }
-      })
-
+      // Crear nuevo romaneo
       const animal = asignacion?.animal
       
+      console.log('Creando nuevo romaneo con datos:', {
+        garron: parseInt(garron),
+        tropaCodigo: animal?.tropa?.codigo || asignacion?.tropaCodigo,
+        numeroAnimal: animal?.numero || asignacion?.animalNumero,
+        pesoVivo: animal?.pesoVivo || animal?.pesajeIndividual?.peso || asignacion?.pesoVivo
+      })
+
       romaneo = await db.romaneo.create({
         data: {
-          garron,
-          tropaCodigo: animal?.tropa?.codigo || null,
-          numeroAnimal: animal?.numero || null,
-          tipoAnimal: animal?.tipoAnimal || null,
-          pesoVivo: animal?.pesoVivo || animal?.pesajeIndividual?.peso || null,
-          raza: animal?.raza || null,
+          garron: parseInt(garron),
+          tropaCodigo: animal?.tropa?.codigo || asignacion?.tropaCodigo || null,
+          numeroAnimal: animal?.numero || asignacion?.animalNumero || null,
+          tipoAnimal: (animal?.tipoAnimal || asignacion?.tipoAnimal) as any || null,
+          pesoVivo: animal?.pesoVivo || animal?.pesajeIndividual?.peso || asignacion?.pesoVivo || null,
           denticion: denticion || null,
           tipificadorId: tipificadorId || null,
           operadorId: operadorId || null,
@@ -60,6 +99,8 @@ export async function POST(request: NextRequest) {
         },
         include: { mediasRes: true }
       })
+      
+      console.log('Romaneo creado:', romaneo.id)
     }
 
     // Actualizar dentición si se proporciona
@@ -79,8 +120,9 @@ export async function POST(request: NextRequest) {
     })
 
     if (mediaExistente) {
+      console.log('Media ya existe:', mediaExistente.id)
       return NextResponse.json(
-        { success: false, error: `Ya existe media ${lado.toLowerCase()} para este garrón` },
+        { success: false, error: `Ya existe media ${lado.toLowerCase()} para el garrón ${garron}` },
         { status: 400 }
       )
     }
@@ -89,80 +131,102 @@ export async function POST(request: NextRequest) {
     const fecha = new Date()
     const codigoBase = `${fecha.getFullYear().toString().slice(-2)}${(fecha.getMonth() + 1).toString().padStart(2, '0')}${fecha.getDate().toString().padStart(2, '0')}-${garron.toString().padStart(4, '0')}-${lado.charAt(0)}`
 
-    // Crear la media res con código único
+    // Crear la media res
     const mediaRes = await db.mediaRes.create({
       data: {
         romaneoId: romaneo.id,
         lado: lado as 'IZQUIERDA' | 'DERECHA',
-        sigla: 'A', // Por defecto A (se usa para identificar)
-        peso,
+        sigla: 'A', // Por defecto A
+        peso: pesoNum,
         codigo: `${codigoBase}-A`,
         estado: 'EN_CAMARA',
         camaraId
       }
     })
 
-    // Actualizar stock de la cámara
-    const stockExistente = await db.stockMediaRes.findFirst({
-      where: {
-        camaraId,
-        tropaCodigo: romaneo.tropaCodigo || 'SIN-TROPA'
-      }
-    })
+    console.log('MediaRes creada:', mediaRes.id)
 
-    if (stockExistente) {
-      await db.stockMediaRes.update({
-        where: { id: stockExistente.id },
-        data: {
-          cantidad: { increment: 1 },
-          pesoTotal: { increment: peso }
-        }
-      })
-    } else {
-      await db.stockMediaRes.create({
-        data: {
+    // Actualizar stock de la cámara
+    try {
+      const tropaCodigo = romaneo.tropaCodigo || 'SIN-TROPA'
+      
+      const stockExistente = await db.stockMediaRes.findFirst({
+        where: {
           camaraId,
-          tropaCodigo: romaneo.tropaCodigo || 'SIN-TROPA',
-          especie: 'BOVINO',
-          cantidad: 1,
-          pesoTotal: peso
+          tropaCodigo,
+          especie: 'BOVINO'
         }
       })
+
+      if (stockExistente) {
+        await db.stockMediaRes.update({
+          where: { id: stockExistente.id },
+          data: {
+            cantidad: { increment: 1 },
+            pesoTotal: { increment: pesoNum }
+          }
+        })
+        console.log('Stock actualizado:', stockExistente.id)
+      } else {
+        const nuevoStock = await db.stockMediaRes.create({
+          data: {
+            camaraId,
+            tropaCodigo,
+            especie: 'BOVINO',
+            cantidad: 1,
+            pesoTotal: pesoNum
+          }
+        })
+        console.log('Stock creado:', nuevoStock.id)
+      }
+    } catch (stockError) {
+      console.error('Error actualizando stock:', stockError)
+      // No fallar el pesaje por error de stock
     }
 
     // Registrar movimiento de cámara
-    await db.movimientoCamara.create({
-      data: {
-        camaraDestinoId: camaraId,
-        producto: 'Media Res',
-        cantidad: 1,
-        peso,
-        tropaCodigo: romaneo.tropaCodigo,
-        garron,
-        operadorId,
-        observaciones: `Ingreso garrón ${garron} - ${lado}`
-      }
-    })
-
-    // Actualizar asignación del garrón si existe
-    if (lado === 'DERECHA') {
-      await db.asignacionGarron.updateMany({
-        where: { garron },
-        data: { tieneMediaDer: true }
+    try {
+      await db.movimientoCamara.create({
+        data: {
+          camaraDestinoId: camaraId,
+          producto: 'Media Res',
+          cantidad: 1,
+          peso: pesoNum,
+          tropaCodigo: romaneo.tropaCodigo,
+          mediaResId: mediaRes.id,
+          operadorId: operadorId || null,
+          observaciones: `Ingreso garrón ${garron} - ${lado}`
+        }
       })
-    } else {
-      await db.asignacionGarron.updateMany({
-        where: { garron },
-        data: { tieneMediaIzq: true }
-      })
+      console.log('Movimiento de cámara registrado')
+    } catch (movError) {
+      console.error('Error registrando movimiento:', movError)
+      // No fallar el pesaje por error de movimiento
     }
 
-    // Verificar si ya tiene ambas medias para calcular totales
+    // Actualizar asignación del garrón
+    if (asignacion) {
+      if (lado === 'DERECHA') {
+        await db.asignacionGarron.update({
+          where: { id: asignacion.id },
+          data: { tieneMediaDer: true }
+        })
+      } else {
+        await db.asignacionGarron.update({
+          where: { id: asignacion.id },
+          data: { tieneMediaIzq: true }
+        })
+      }
+    }
+
+    // Verificar si ya tiene ambas medias
     const todasLasMedias = await db.mediaRes.findMany({
       where: { romaneoId: romaneo.id }
     })
 
-    // Si tiene ambas medias, actualizar romaneo con totales y rinde
+    console.log('Total medias:', todasLasMedias.length)
+
+    // Si tiene ambas medias, actualizar romaneo con totales
     if (todasLasMedias.length === 2) {
       const mediaIzq = todasLasMedias.find(m => m.lado === 'IZQUIERDA')
       const mediaDer = todasLasMedias.find(m => m.lado === 'DERECHA')
@@ -183,12 +247,18 @@ export async function POST(request: NextRequest) {
         })
 
         // Marcar asignación como completada
-        await db.asignacionGarron.updateMany({
-          where: { garron },
-          data: { completado: true }
-        })
+        if (asignacion) {
+          await db.asignacionGarron.update({
+            where: { id: asignacion.id },
+            data: { completado: true }
+          })
+        }
+        
+        console.log('Romaneo completado con ambas medias')
       }
     }
+
+    console.log('=== FIN PESAJE EXITOSO ===')
 
     return NextResponse.json({
       success: true,
@@ -196,15 +266,21 @@ export async function POST(request: NextRequest) {
         id: mediaRes.id,
         garron,
         lado,
-        peso,
-        siglas
+        peso: pesoNum,
+        codigo: mediaRes.codigo,
+        romaneoId: romaneo.id
       }
     })
 
   } catch (error) {
-    console.error('Error en pesaje:', error)
+    console.error('=== ERROR EN PESAJE ===')
+    console.error('Error completo:', error)
     return NextResponse.json(
-      { success: false, error: 'Error al registrar pesaje' },
+      { 
+        success: false, 
+        error: 'Error al registrar pesaje',
+        details: error instanceof Error ? error.message : 'Error desconocido'
+      },
       { status: 500 }
     )
   }
