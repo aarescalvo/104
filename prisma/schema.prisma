@@ -630,16 +630,27 @@ enum EstadoListaFaena {
 
 model AsignacionGarron {
   id            String       @id @default(cuid())
-  listaFaenaId  String
-  listaFaena    ListaFaena   @relation(fields: [listaFaenaId], references: [id])
+  listaFaenaId  String?
+  listaFaena    ListaFaena?  @relation(fields: [listaFaenaId], references: [id])
   
   garron        Int          // Número de garrón (correlativo por día)
   
-  animalId      String       @unique
-  animal        Animal       @relation(fields: [animalId], references: [id])
+  animalId      String?      @unique
+  animal        Animal?      @relation(fields: [animalId], references: [id])
   
   // Datos al momento de la asignación (se pueden modificar)
-  numeroAnimal  Int          // Número del animal dentro de la tropa
+  tropaCodigo   String?      // Código de tropa (denormalizado)
+  animalNumero  Int?         // Número del animal dentro de la tropa
+  tipoAnimal    String?      // Tipo de animal (VA, NO, etc.)
+  pesoVivo      Float?       // Peso vivo al momento de asignar
+  
+  // Operador que asignó
+  operadorId    String?
+  
+  // Estado de pesaje
+  tieneMediaDer Boolean      @default(false)
+  tieneMediaIzq Boolean      @default(false)
+  completado    Boolean      @default(false)
   
   // Hora de ingreso a faena
   horaIngreso   DateTime     @default(now())
@@ -649,6 +660,7 @@ model AsignacionGarron {
   
   @@unique([listaFaenaId, garron])
   @@index([garron])
+  @@index([horaIngreso])
 }
 
 // ==================== ROMANEO ====================
@@ -1327,3 +1339,4 @@ enum PrioridadReclamo {
   ALTA            // Requiere atención pronta
   URGENTE         // Urgente, atención inmediata
 }
+
