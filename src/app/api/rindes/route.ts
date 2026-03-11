@@ -90,9 +90,9 @@ export async function GET(request: NextRequest) {
       const tropa = await db.tropa.findUnique({
         where: { id: tropaId },
         include: {
-          Cliente_Tropa_productorIdToCliente: true,
-          Cliente_Tropa_usuarioFaenaIdToCliente: true,
-          Animal: true
+          productor: true,
+          usuarioFaena: true,
+          animales: true
         }
       })
 

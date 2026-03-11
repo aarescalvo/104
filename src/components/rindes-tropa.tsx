@@ -52,8 +52,8 @@ interface TropaDetalle {
   numero: number
   codigo: string
   cantidadCabezas: number
-  Cliente_Tropa_productorIdToCliente: { nombre: string } | null
-  Cliente_Tropa_usuarioFaenaIdToCliente: { nombre: string } | null
+  productor: { nombre: string } | null
+  usuarioFaena: { nombre: string } | null
 }
 
 interface Operador {
@@ -455,8 +455,8 @@ function RindesTropaModule({ operador }: { operador: Operador }) {
               Detalle de Tropa {tropaDetalle?.tropa?.codigo}
             </DialogTitle>
             <DialogDescription>
-              {tropaDetalle?.tropa?.Cliente_Tropa_productorIdToCliente?.nombre && (
-                <span>Productor: {tropaDetalle.tropa.Cliente_Tropa_productorIdToCliente.nombre}</span>
+              {tropaDetalle?.tropa?.productor?.nombre && (
+                <span>Productor: {tropaDetalle.tropa.productor.nombre}</span>
               )}
             </DialogDescription>
           </DialogHeader>

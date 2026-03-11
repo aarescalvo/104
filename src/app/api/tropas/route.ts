@@ -5,13 +5,19 @@ import { db } from '@/lib/db'
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const estado = searchParams.get('estado')
+    const estadoParam = searchParams.get('estado')
     const especie = searchParams.get('especie')
     
     const where: Record<string, unknown> = {}
-    
-    if (estado && estado !== 'todos') {
-      where.estado = estado.toUpperCase()
+
+    // Manejar estados múltiples separados por coma
+    if (estadoParam && estadoParam !== 'todos') {
+      const estados = estadoParam.split(',').map(e => e.trim().toUpperCase())
+      if (estados.length === 1) {
+        where.estado = estados[0]
+      } else {
+        where.estado = { in: estados }
+      }
     }
     
     if (especie && especie !== 'todos') {

@@ -16,10 +16,10 @@ export async function GET() {
         corralId: { not: null }
       },
       include: {
-        Cliente_Tropa_productorIdToCliente: {
+        productor: {
           select: { nombre: true }
         },
-        Cliente_Tropa_usuarioFaenaIdToCliente: {
+        usuarioFaena: {
           select: { nombre: true }
         }
       }
@@ -61,7 +61,8 @@ export async function GET() {
           especie: t.especie,
           cantidadCabezas: t.cantidadCabezas,
           estado: t.estado,
-          productor: t.Cliente_Tropa_productorIdToCliente,
+          productor: t.productor,
+          usuarioFaena: t.usuarioFaena,
           fechaRecepcion: t.fechaRecepcion.toISOString()
         }))
       }
