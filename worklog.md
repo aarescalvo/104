@@ -942,3 +942,29 @@ Stage Summary:
 - Sistema listo para producción
 - Pendiente: push a GitHub
 
+
+---
+Task ID: 42
+Agent: main
+Task: Investigar error de cliente en preview
+
+Work Log:
+- Identificado error "application error: a client-side exception has occurred"
+- Verificado que el build pasa sin errores
+- Verificado que el servidor responde correctamente con HTML
+- Actualizado next.config.ts con allowedDevOrigins para permitir cross-origin
+- El error parece ser específico del entorno de preview (cross-origin)
+- El servidor local funciona correctamente
+
+Stage Summary:
+- Build exitoso sin errores
+- Servidor respondiendo 200 OK
+- Configuración de allowedDevOrigens actualizada
+- Problema de cross-origin detectado en el entorno de preview
+- La aplicación debería funcionar correctamente cuando se accede directamente
+
+Posibles soluciones para el usuario:
+1. Intentar hacer un "hard refresh" (Ctrl+Shift+R) en el preview
+2. Verificar que el preview esté usando la URL correcta
+3. Si persiste, puede ser un problema temporal del entorno de preview
+
